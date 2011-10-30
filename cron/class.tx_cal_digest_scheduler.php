@@ -34,6 +34,7 @@ class tx_cal_digest_scheduler
 	var $mailRecipient;
 	var $mailSender;
 	var $digestForecastDays;
+	var $langValue;
     
     var $LANG;
     
@@ -51,7 +52,8 @@ class tx_cal_digest_scheduler
 	*/
 	public function execute() {
 		// setup backend language
-		$LANG = t3lib_div::makeInstance('language'); 
+		$LANG = t3lib_div::makeInstance('language');
+		$LANG->lang = $this->langValue;
 		$LANG->includeLLFile('EXT:cal/locallang_tca.php');
 		$LANG->includeLLFile('EXT:cal/locallang_db.php');
 		$LANG->includeLLFile('EXT:cal/locallang.php');
@@ -66,10 +68,6 @@ class tx_cal_digest_scheduler
 		$future_timestamp = time()+ ($this->digestForecastDays * 24 * 60 * 60);
 		$future_date = date("Ymd", $future_timestamp);
 		
-		// array used to add the name of the day to each event
-		//FIXME add proper localization
-		$days = array("So", "Mo", "Di", "Mi", "Do", "Fr", "Sa");
-	
 		// get all events which are scheduled for the next seven days
 		$select = '*';
 		$table = 'tx_cal_event';
@@ -126,9 +124,15 @@ class tx_cal_digest_scheduler
 			$timestamp = mktime(0, 0, 0, $event_date_month, $event_date_day, $event_date_year);
 			
 			// get the name of the weekday of the event
-			$event_day = date("w", $timestamp);
-			$event_day = $days[$event_day];
-			
+			if ($LANG->lang == "de") {
+				// array used to add the name of the day to each event, looks nicer than default translations
+				$days = array("So", "Mo", "Di", "Mi", "Do", "Fr", "Sa");
+				$event_day = date("w", $timestamp);
+				$event_day = $days[$event_day];
+			} else {
+				$event_day = date("D", $timestamp);
+			}
+				
 			// update the date of the event such that it has the format dd.mm, e.g. 06.10
 			$event_date = $event_date_day.".".$event_date_month.".";            
 			
@@ -169,8 +173,7 @@ class tx_cal_digest_scheduler
 		
 		$email = t3lib_div::makeInstance('t3lib_htmlmail'); 
 		
-		$email->start();
-		$email->setRecipient($this->mailRecipient);   
+		$email->start(); 
 		$email->subject = $LANG->getLL('cal.cron.digestMailTitle');
 		$email->from_email = $this->mailSender;
 // 		$email->from_name = 'Sender';
@@ -178,7 +181,9 @@ class tx_cal_digest_scheduler
 		$email->setContent();   
 		$email->setPlain($content);
 		
-		if ($email->send()) {
+// 		echo $email->preview();
+		
+		if ($email->send($this->mailRecipient)) {
 			return true;
 		} else {
 			// if we come here, something went really wrong
@@ -236,6 +241,14 @@ class tx_cal_digest_scheduler
 				$taskInfo['digestForecastDays'] = 7;
 			}
 		}
+		// Inititialize extra field "digestForecastDays"
+		if (empty($taskInfo['langValue'])) {
+			if($parentObject->CMD == 'edit') {
+				$taskInfo['langValue'] = $task->langValue;
+			} else {
+				$taskInfo['langValue'] = 'default';
+			}
+		}
 		
 		// Write the code for calendar selection field
 		$fieldIDcalendar = 'tx_scheduler[calendar]';
@@ -275,6 +288,13 @@ class tx_cal_digest_scheduler
 			'label'    => 'Forecast Days'
 		);
 		
+		$fieldIDlangValue = 'tx_scheduler[langValue]';
+		$fieldCode = '<input name="'.$fieldIDlangValue.'" id="langValue" type="text" size="3" value="'.$taskInfo['langValue'].'" />';
+		$additionalFields[$fieldIDlangValue] = array(
+			'code'     => $fieldCode,
+			'label'    => 'Language (use ID)'
+		);
+		
 		return $additionalFields;
 	}
 
@@ -286,6 +306,8 @@ class tx_cal_digest_scheduler
 		$submittedData['mailRecipient'] = $submittedData['mailRecipient'];
 		$submittedData['mailSender'] = $submittedData['mailSender'];
 		$submittedData['digestForecastDays'] = intval($submittedData['digestForecastDays']);
+		$submittedData['langValue'] = $submittedData['langValue'];
+		
 		return true;
 	}
 
@@ -297,6 +319,7 @@ class tx_cal_digest_scheduler
 		$task->mailRecipient = $submittedData['mailRecipient'];
 		$task->mailSender = $submittedData['mailSender'];
 		$task->digestForecastDays = $submittedData['digestForecastDays'];
+		$task->langValue = $submittedData['langValue'];
 	}
 
 }
