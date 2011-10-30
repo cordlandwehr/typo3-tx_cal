@@ -30,6 +30,9 @@ class tx_cal_digest_scheduler
 {
 	var $uid;
 	var $calendar;
+	var $mailRecipient;
+	var $mailSender;
+	var $digestForecastDays;
     
     /**
      * next function (can) fixe PHP4 issue if present
@@ -51,7 +54,7 @@ class tx_cal_digest_scheduler
 		$current_date = date("Ymd", $current_timestamp);
 		
 		// get the date of the day in seven days, formatted as above
-		$future_timestamp = time()+604800; // 604800 = 7 * 24 * 60 * 60
+		$future_timestamp = time()+ ($this->digestForecastDays * 24 * 60 * 60);
 		$future_date = date("Ymd", $future_timestamp);
 		
 		// array used to add the name of the day to each event
@@ -61,7 +64,7 @@ class tx_cal_digest_scheduler
 		// get all events which are scheduled for the next seven days
 		$select = '*';
 		$table = 'tx_cal_event';
-		$where = 'calendar_id = '.$this->calender.' and start_date >= '.$current_date.' and end_date <= '.$future_date;             
+		$where = 'calendar_id = '.$this->calendar.' and start_date >= '.$current_date.' and end_date <= '.$future_date;             
 		$queryresult = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where, $groupBy = '', $orderBy = 'start_date,start_time', $limit = ''); 
 		
 		// handle every event which was found
@@ -157,18 +160,20 @@ class tx_cal_digest_scheduler
 		$email = t3lib_div::makeInstance('t3lib_htmlmail'); 
 		
 		$email->start();
-		$email->setRecipient('maxdrees@mail.upb.de');   
+		$email->setRecipient($this->mailRecipient);   
 		$email->subject = 'Oberseminare für diese Woche';
-		$email->from_email = 'absender@upb.de';
-		$email->from_name = 'Absender';
+		$email->from_email = $this->mailSender;
+// 		$email->from_name = 'Sender';
 		
 		
 		$email->setContent();   
 		$email->setPlain($content);
 //         $email->send(); //FIXME reactivate
 
+		echo "<pre>";
 		echo "--- TEST DATA OUTPUT ---";
 		echo($content);
+		echo "</pre>";
 		die();
 		
 		return true;
@@ -181,6 +186,9 @@ class tx_cal_digest_scheduler
 	* \see Interface tx_scheduler_AdditionalFieldProvider
 	*/
 	public function getAdditionalFields(array &$taskInfo, $task, tx_scheduler_Module $parentObject) {
+		$additionalFields = array();
+		
+		// option for calendar selection
 		if (empty($taskInfo['calendar'])) {
 			if($parentObject->CMD == 'edit') {
 				$taskInfo['calendar'] = $task->calendar;
@@ -188,9 +196,46 @@ class tx_cal_digest_scheduler
 				$taskInfo['calendar'] = '';
 			}
 		}
+		// Initialize extra field "receiver"
+		if (empty($taskInfo['mailRecipient'])) {
+			if ($parentObject->CMD == 'add') {
+					// In case of new task and if field is empty, set default email address
+				$taskInfo['mailRecipient'] = $GLOBALS['BE_USER']->user['email'];
 
-		// Write the code for the field
-		$fieldCode = '<select name="tx_scheduler[calendar]" id="calendar" >';
+			} elseif ($parentObject->CMD == 'edit') {
+					// In case of edit, and editing a test task, set to internal value if not data was submitted already
+				$taskInfo['mailRecipient'] = $task->mailRecipient;
+			} else {
+					// Otherwise set an empty value, as it will not be used anyway
+				$taskInfo['mailRecipient'] = '';
+			}
+		}
+		// Initialize extra field "sender"
+		if (empty($taskInfo['mailSender'])) {
+			if ($parentObject->CMD == 'add') {
+					// In case of new task and if field is empty, set default email address
+				$taskInfo['mailSender'] = $GLOBALS['BE_USER']->user['email'];
+
+			} elseif ($parentObject->CMD == 'edit') {
+					// In case of edit, and editing a test task, set to internal value if not data was submitted already
+				$taskInfo['mailSender'] = $task->mailSender;
+			} else {
+					// Otherwise set an empty value, as it will not be used anyway
+				$taskInfo['mailSender'] = '';
+			}
+		}
+		// Inititialize extra field "digestForecastDays"
+		if (empty($taskInfo['digestForecastDays'])) {
+			if($parentObject->CMD == 'edit') {
+				$taskInfo['digestForecastDays'] = $task->digestForecastDays;
+			} else {
+				$taskInfo['digestForecastDays'] = 7;
+			}
+		}
+		
+		// Write the code for calendar selection field
+		$fieldIDcalendar = 'tx_scheduler[calendar]';
+		$fieldCode = '<select name="'.$fieldIDcalendar.'" id="calendar" >';
 		$res = $GLOBALS['TYPO3_DB']->sql_query('SELECT uid, title
 												FROM tx_cal_calendar
 												WHERE deleted=0 AND hidden=0');
@@ -200,13 +245,32 @@ class tx_cal_digest_scheduler
 					$row['title'].
 					'</option>';
 		$fieldCode .= '</select>';
-		
-		$additionalFields = array();
-		$additionalFields[$fieldID] = array(
+		$additionalFields[$fieldIDcalendar] = array(
 			'code'     => $fieldCode,
 			'label'    => 'Calendar'
 		);
 
+		$fieldIDrecipient = 'tx_scheduler[mailRecipient]';
+		$fieldCode = '<input name="'.$fieldIDrecipient.'" id="mailRecipient" type="text" size="30" value="'.$taskInfo['mailRecipient'].'" />';
+		$additionalFields[$fieldIDrecipient] = array(
+			'code'     => $fieldCode,
+			'label'    => 'Digest Recipient'
+		);
+		
+		$fieldIDsender = 'tx_scheduler[mailSender]';
+		$fieldCode = '<input name="'.$fieldIDsender.'" id="mailSender" type="text" size="30" value="'.$taskInfo['mailSender'].'" />';
+		$additionalFields[$fieldIDsender] = array(
+			'code'     => $fieldCode,
+			'label'    => 'Digest Sender (reply to)'
+		);
+		
+		$fieldIDdigestForecastDays = 'tx_scheduler[digestForecastDays]';
+		$fieldCode = '<input name="'.$fieldIDdigestForecastDays.'" id="digestForecastDays" type="text" size="3" value="'.$taskInfo['digestForecastDays'].'" />';
+		$additionalFields[$fieldIDdigestForecastDays] = array(
+			'code'     => $fieldCode,
+			'label'    => 'Forecast Days'
+		);
+		
 		return $additionalFields;
 	}
 
@@ -215,6 +279,9 @@ class tx_cal_digest_scheduler
 	*/
 	public function validateAdditionalFields(array &$submittedData, tx_scheduler_Module $parentObject) {
 		$submittedData['calendar'] = intval($submittedData['calendar']);
+		$submittedData['mailRecipient'] = $submittedData['mailRecipient'];
+		$submittedData['mailSender'] = $submittedData['mailSender'];
+		$submittedData['digestForecastDays'] = intval($submittedData['digestForecastDays']);
 		return true;
 	}
 
@@ -223,6 +290,9 @@ class tx_cal_digest_scheduler
 	*/
 	public function saveAdditionalFields(array $submittedData, tx_scheduler_Task $task) {
 		$task->calendar = $submittedData['calendar'];
+		$task->mailRecipient = $submittedData['mailRecipient'];
+		$task->mailSender = $submittedData['mailSender'];
+		$task->digestForecastDays = $submittedData['digestForecastDays'];
 	}
 
 }
