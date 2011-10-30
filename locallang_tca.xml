@@ -151,6 +151,8 @@
 			<label index="cal.pi_flexform.sheetTSView">Typoscript</label>
 			<label index="cal.pi_flexform.tsconfig">plugin.tx_cal_controller:</label>
 			<label index="cal.pi_flexform.calendarDistance">Distance (Km) for events in a nearby calendar</label>
+			<label index="cal.pi_flexform.NomenNominandum">tba.</label>
+			<label index="cal.cron.digestMailTitle">Event Digest</label>
 		</languageKey>
 		<languageKey index="de" type="array">
 			<label index="cal.pi_flexform.sheetGeneral">Allgemeine Einstellungen</label>
@@ -291,6 +293,8 @@
 			<label index="cal.pi_flexform.sheetTSView">Typoscript</label>
 			<label index="cal.pi_flexform.tsconfig">plugin.tx_cal_controller:</label>
 			<label index="cal.pi_flexform.anonymousUserUid">Anonymer Benutzer</label>
+			<label index="cal.pi_flexform.NomenNominandum">N.N.</label>
+			<label index="cal.cron.digestMailTitle">Terminvorschau</label>
 		</languageKey>
 		<languageKey index="dk" type="array">
 			<label index="cal.pi_flexform.sheetGeneral">Generelle indstillinger</label>

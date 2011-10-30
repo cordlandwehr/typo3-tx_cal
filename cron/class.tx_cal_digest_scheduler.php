@@ -35,6 +35,8 @@ class tx_cal_digest_scheduler
 	var $mailSender;
 	var $digestForecastDays;
     
+    var $LANG;
+    
     /**
      * next function fixes PHP4 issues
      */
@@ -48,6 +50,12 @@ class tx_cal_digest_scheduler
 	* \return true iff everything went right
 	*/
 	public function execute() {
+		// setup backend language
+		$LANG = t3lib_div::makeInstance('language'); 
+		$LANG->includeLLFile('EXT:cal/locallang_tca.php');
+		$LANG->includeLLFile('EXT:cal/locallang_db.php');
+		$LANG->includeLLFile('EXT:cal/locallang.php');
+	
 		$content = '';
 		
 		// get the current date, formatted in the same way as in the cal extension
@@ -84,10 +92,10 @@ class tx_cal_digest_scheduler
 				if ( $query = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where) &&
 					$organizer = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($tmp) )
 				{
-					$event_group = $organizer['name'];
+					$event_organizer = $organizer['name'];
 				}
 			} else {
-				$event_group = $even['organizer'];
+				$event_organizer = $event['organizer'];
 			}
 			
 			// get location
@@ -138,6 +146,7 @@ class tx_cal_digest_scheduler
 			$table = 'tx_cal_event_category_mm';
 			$where = 'uid_local = '.$event_id;
 			$result_categories = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where);
+			$event_categories = array();
 			while ($connection_event_category = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($result_categories)) {
 				$select = '*';
 				$table = 'tx_cal_category';
@@ -145,46 +154,36 @@ class tx_cal_digest_scheduler
 				
 				$result_category = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where);
 				$category_title = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($result_category);
-				$event_categories = $category_title['title'];
+				$event_categories[] = $category_title['title'];
 			}   
 			
 			// new format
-			//FIXME add dynamic layouts
+			// TODO this could be changed to a dynamic layout
 			$content .= $event_day.", ".$event_date.", ".$event_starttime.": *".$event_title."*\n";
-			$content .= "   Vortragender ".$event_lecturer.", Raum ".$event_location."\n";
-			$content .= "   ".$event_categories."\n";
-			$content .= "   <LINK>\n\n";
-			
-			/* old format           
-			$content = $content.$event_title."\n";          
-			$content = $content.$event_categories."\n";
-			$content = $content.$event_lecturer.", ".$event_group."\n";         
-			$content = $content.$event_day.", ".$event_date.", ".$event_starttime.$event_endtime.", ".$event_location."\n\n";
-			*/
+			$content .= "   ".($event_organizer!=''? $event_organizer: $LANG->getLL('cal.pi_flexform.NomenNominandum'));
+			$content .= ", ";
+			$content .= $LANG->getLL('tx_cal_event.location')." ".($event_location!=''? $event_location: $LANG->getLL('cal.pi_flexform.NomenNominandum'))."\n";
+			$content .= "   ".implode(", ",$event_categories)."\n";
+			//$content .= "   <LINK>\n\n";	//TODO create link to event
 		}
 		
 		$email = t3lib_div::makeInstance('t3lib_htmlmail'); 
 		
 		$email->start();
 		$email->setRecipient($this->mailRecipient);   
-		$email->subject = 'Oberseminare für diese Woche';
+		$email->subject = $LANG->getLL('cal.cron.digestMailTitle');
 		$email->from_email = $this->mailSender;
 // 		$email->from_name = 'Sender';
 
 		$email->setContent();   
 		$email->setPlain($content);
-//         $email->send(); //FIXME reactivate
-
-		echo "<pre>";
-		echo "--- TEST DATA OUTPUT ---";
-		echo($content);
-		echo "</pre>";
-		die();
 		
-		return true;
-		
-		// if we come here, something went really wrong
-		return false;
+		if ($email->send()) {
+			return true;
+		} else {
+			// if we come here, something went really wrong
+			return false;
+		}
 	}
 
 	/**
