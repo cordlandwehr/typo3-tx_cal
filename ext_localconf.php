@@ -720,6 +720,12 @@ if (t3lib_div::inList($TYPO3_CONF_VARS['EXT']['extList'], 'scheduler')) {
 		'description'      => 'cal reminder scheduler integration',
 		'additionalFields' => ''
 	);
+    $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['scheduler']['tasks']['tx_cal_digest_scheduler'] = array(
+        'extension'        => $_EXTKEY,
+        'title'            => 'cal digest scheduler cron',
+        'description'      => 'cal digest scheduler implementation to send digest of next events',
+        'additionalFields' => 'tx_cal_digest_scheduler'
+    );
 	if (TYPO3_MODE == 'FE'){
 		$extensionPath = t3lib_extMgm::extPath('scheduler');
 		$requiredClasses = array(
