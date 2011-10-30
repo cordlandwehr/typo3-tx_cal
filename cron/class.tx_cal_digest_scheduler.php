@@ -28,6 +28,7 @@ class tx_cal_digest_scheduler
 	extends tx_scheduler_Task 
 	implements tx_scheduler_AdditionalFieldProvider
 {
+	// these variables are set by scheduler task configuration
 	var $uid;
 	var $calendar;
 	var $mailRecipient;
@@ -35,7 +36,7 @@ class tx_cal_digest_scheduler
 	var $digestForecastDays;
     
     /**
-     * next function (can) fixe PHP4 issue if present
+     * next function fixes PHP4 issues
      */
 	function tx_cal_calendar_scheduler() {
 		$this->__construct();
@@ -43,7 +44,7 @@ class tx_cal_digest_scheduler
 
 	/**
 	* This is the main class for the scheduler. It is called each time an execution
-	* is schedulled.
+	* is scheduled.
 	* \return true iff everything went right
 	*/
 	public function execute() {
@@ -53,7 +54,7 @@ class tx_cal_digest_scheduler
 		$current_timestamp = time()-2*604800;
 		$current_date = date("Ymd", $current_timestamp);
 		
-		// get the date of the day in seven days, formatted as above
+		// get the date of the day in $digestForecastDays, formatted as above
 		$future_timestamp = time()+ ($this->digestForecastDays * 24 * 60 * 60);
 		$future_date = date("Ymd", $future_timestamp);
 		
@@ -75,28 +76,38 @@ class tx_cal_digest_scheduler
 			$event_categories = '';
 			$event_lecturer = $event['organizer'];
 			
-			$select = '*';
-			$table= 'tx_cal_organizer';
-			$where = 'uid = '.$event['organizer_id'];
-            
-			$tmp = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select,$table,$where);           
-			$tmp2 = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($tmp);
-			$event_group = $tmp2['name'];
+			// get organizer
+			if ($event['organizer_id']) {
+				$select = '*';
+				$table= 'tx_cal_organizer';
+				$where = 'uid = '.$event['organizer_id'];
+				if ( $query = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where) &&
+					$organizer = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($tmp) )
+				{
+					$event_group = $organizer['name'];
+				}
+			} else {
+				$event_group = $even['organizer'];
+			}
 			
-			$select = '*';
-			$table= 'tx_cal_location';
-			$where = 'uid = '.$event['location_id'];
+			// get location
+			if ($event['location_id']) {
+				$select = '*';
+				$table= 'tx_cal_location';
+				$where = 'uid = '.$event['location_id'];
+				if( $query = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where) &&
+					$location = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($query) )
+				{
+					$event_location = $location['name'];
+				}
+			}
+			else {
+				$event_location=$event['location'];
+			}
 			
-			$tmp = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select,$table,$where);           
-			$tmp2 = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($tmp);
-			$event_location = $tmp2['name'];
-			
-			
-						
 			$event_date = $event['start_date'];
 			$event_starttime = $event['start_time'];
 			$event_endtime = $event['end_time'];
-			
 			
 			// seperate day, month and year of the date
 			$event_date_year = substr($event_date, 0, 4);
@@ -123,21 +134,16 @@ class tx_cal_digest_scheduler
 				$event_endtime = "";
 			}
 			
-			
-			
-
 			$select = '*';
 			$table = 'tx_cal_event_category_mm';
 			$where = 'uid_local = '.$event_id;
-			
-			$result_categories = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select,$table,$where);                                 
-			
+			$result_categories = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where);
 			while ($connection_event_category = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($result_categories)) {
 				$select = '*';
 				$table = 'tx_cal_category';
 				$where = 'uid = '.$connection_event_category['uid_foreign'];
 				
-				$result_category = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select,$table,$where);
+				$result_category = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where);
 				$category_title = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($result_category);
 				$event_categories = $category_title['title'];
 			}   
@@ -164,8 +170,7 @@ class tx_cal_digest_scheduler
 		$email->subject = 'Oberseminare für diese Woche';
 		$email->from_email = $this->mailSender;
 // 		$email->from_name = 'Sender';
-		
-		
+
 		$email->setContent();   
 		$email->setPlain($content);
 //         $email->send(); //FIXME reactivate
