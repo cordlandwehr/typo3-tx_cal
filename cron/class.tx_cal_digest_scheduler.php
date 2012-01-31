@@ -21,6 +21,10 @@
  * This copyright notice MUST APPEAR in all copies of the file!
  ***************************************************************/
 
+require_once (PATH_t3lib.'class.t3lib_page.php');
+require_once (PATH_t3lib.'class.t3lib_tstemplate.php');
+require_once (PATH_t3lib.'class.t3lib_tsparser_ext.php');  
+ 
 require_once(t3lib_extMgm::extPath('cal').'controller/class.tx_cal_functions.php');
 require_once(PATH_t3lib.'class.t3lib_htmlmail.php');    
 
@@ -31,12 +35,17 @@ class tx_cal_digest_scheduler
 	// these variables are set by scheduler task configuration
 	var $uid;
 	var $calendar;
+	var $digestType;
 	var $mailRecipient;
 	var $mailSender;
 	var $digestForecastDays;
 	var $langValue;
+	var $conf;
+	var $extKey ="cal";
+	var $templateFile = '';
     
     var $LANG;
+    var $cObj;
     
     /**
      * next function fixes PHP4 issues
@@ -51,14 +60,16 @@ class tx_cal_digest_scheduler
 	* \return true iff everything went right
 	*/
 	public function execute() {
+		$this->init();
+		
 		// setup backend language
-		$LANG = t3lib_div::makeInstance('language');
-		$LANG->lang = $this->langValue;
-		$LANG->includeLLFile('EXT:cal/locallang_tca.php');
-		$LANG->includeLLFile('EXT:cal/locallang_db.php');
-		$LANG->includeLLFile('EXT:cal/locallang.php');
+		$this->LANG = t3lib_div::makeInstance('language');
+		$this->LANG->lang = $this->langValue;
+		$this->LANG->includeLLFile('EXT:cal/locallang_tca.php');
+		$this->LANG->includeLLFile('EXT:cal/locallang_db.php');
+		$this->LANG->includeLLFile('EXT:cal/locallang.php');
 	
-		$content = '';
+		$formattedEvents = array(); // this gathers all formatted events
 		
 		// get the current date, formatted in the same way as in the cal extension
 		$current_timestamp = time()-2*604800;
@@ -81,6 +92,8 @@ class tx_cal_digest_scheduler
 			$event_title = $event['title'];
 			$event_categories = '';
 			$event_lecturer = $event['organizer'];
+			$event_description = $event['description'];
+			$event_teaser = $event['teaser'];
 			
 			// get organizer
 			if ($event['organizer_id']) {
@@ -124,7 +137,7 @@ class tx_cal_digest_scheduler
 			$timestamp = mktime(0, 0, 0, $event_date_month, $event_date_day, $event_date_year);
 			
 			// get the name of the weekday of the event
-			if ($LANG->lang == "de") {
+			if ($this->LANG->lang == "de") {
 				// array used to add the name of the day to each event, looks nicer than default translations
 				$days = array("So", "Mo", "Di", "Mi", "Do", "Fr", "Sa");
 				$event_day = date("w", $timestamp);
@@ -159,29 +172,47 @@ class tx_cal_digest_scheduler
 				$result_category = $GLOBALS['TYPO3_DB']->exec_SELECTquery($select, $table, $where);
 				$category_title = $GLOBALS["TYPO3_DB"]->sql_fetch_assoc($result_category);
 				$event_categories[] = $category_title['title'];
-			}   
+			}
 			
-			// new format
-			// TODO this could be changed to a dynamic layout
-			$content .= $event_day.", ".$event_date.", ".$event_starttime.": *".$event_title."*\n";
-			$content .= "   ".($event_organizer!=''? $event_organizer: $LANG->getLL('cal.pi_flexform.NomenNominandum'));
-			$content .= ", ";
-			$content .= $LANG->getLL('tx_cal_event.location')." ".($event_location!=''? $event_location: $LANG->getLL('cal.pi_flexform.NomenNominandum'))."\n";
-			$content .= "   ".implode(", ",$event_categories)."\n";
-			//$content .= "   <LINK>\n\n";	//TODO create link to event
+			// prepare description texts for plaintext output
+			$event_description = str_replace("\n",'',$event_description);
+ 			$event_description = preg_replace('/<br ?\/?>/',"\n", $event_description);
+ 			$event_teaser = str_replace("\r\n",'',$event_teaser);
+			$event_teaser = preg_replace('/<br ?\/?>/',"\n", $event_teaser);
+			
+			$eventData = array(
+				'day' 			=> $event_day,
+				'date' 			=> $event_date,
+				'starttime' 	=> $event_starttime,
+				'title' 		=> $event_title,
+				'organizer' 	=> $event_organizer,
+				'location'		=> $event_location,
+				'categories'	=> $event_categories,
+				'link' 			=> $this->formatEventLink($event_id, $this->templateFile),
+				'teaser'		=> strip_tags($event_teaser),
+				'description'	=> strip_tags($event_description)
+			);
+ 			$formattedEvents[] = $this->formatEvent($eventData, $this->templateFile);
 		}
+		$content = '';
+		$content .= $this->formatEventListBody($formattedEvents, $this->templateFile);
 		
 		$email = t3lib_div::makeInstance('t3lib_htmlmail'); 
 		
 		$email->start(); 
-		$email->subject = $LANG->getLL('cal.cron.digestMailTitle');
+		$email->subject = $this->LANG->getLL('cal.cron.digestMailTitle');
 		$email->from_email = $this->mailSender;
 // 		$email->from_name = 'Sender';
 
 		$email->setContent();   
 		$email->setPlain($content);
 		
-// 		echo $email->preview();
+// COMMENT OUT FOR TESTING
+// 		$myFile = "/tmp/testOutput.txt";
+// 		$fh = fopen($myFile, 'w');
+// 		fwrite($fh, "\n\n\n".$content);
+// 		fclose($fh);
+// 		return true; // remove this return after testing
 		
 		if ($email->send($this->mailRecipient)) {
 			return true;
@@ -191,6 +222,120 @@ class tx_cal_digest_scheduler
 		}
 	}
 
+	/**
+	 * \brief init the conf array(
+	 */
+	function init(){
+		$this->cObj = t3lib_div::makeInstance('tslib_cObj');
+	
+		list($page) = t3lib_BEfunc::getRecordsByField('pages','pid',0);
+		$pageUid = intval($page['uid']);  
+		
+		$sysPageObj = t3lib_div::makeInstance('t3lib_pageSelect');
+		$rootLine = $sysPageObj->getRootLine($pageUid);
+		$TSObj = t3lib_div::makeInstance('t3lib_tsparser_ext');
+		$TSObj->tt_track = 0;
+		$TSObj->init();
+		$TSObj->runThroughTemplates($rootLine);
+		$TSObj->generateConfig();
+		$this->conf = $TSObj->setup['plugin.']['tx_cal_controller.'];
+		
+		if ($this->digestType=='detail') {
+			$this->templateFile = $this->conf['view.']['digest.']['detailTemplate'];
+		}
+		else {
+			$this->templateFile = $this->conf['view.']['digest.']['listTemplate'];
+		}
+	}
+
+	// function that provides the same functionality like substituteMarkerArrayCached - but not cached, which is far better in case of cal
+	public function substituteMarkerArrayNotCached($content,$markContentArray=array(),$subpartContentArray=array(),$wrappedSubpartContentArray=array())	{
+		$cObj = $this->cObj;
+		//return $cObj->substituteMarkerArrayCached($content,$markContentArray,$subpartContentArray,$wrappedSubpartContentArray);
+		
+			// If not arrays then set them
+		if (!is_array($markContentArray))	$markContentArray=array();	// Plain markers
+		if (!is_array($subpartContentArray))	$subpartContentArray=array();	// Subparts being directly substituted
+		if (!is_array($wrappedSubpartContentArray))	$wrappedSubpartContentArray=array();	// Subparts being wrapped
+			// Finding keys and check hash:
+		$sPkeys = array_keys($subpartContentArray);
+		$wPkeys = array_keys($wrappedSubpartContentArray);
+	
+			// Finding subparts and substituting them with the subpart as a marker
+		reset($sPkeys);
+		while(list(,$sPK)=each($sPkeys))	{
+			$content = $cObj->substituteSubpart($content,$sPK,$subpartContentArray[$sPK]);
+		}
+	
+			// Finding subparts and wrapping them with markers
+		reset($wPkeys);
+		while(list(,$wPK)=each($wPkeys))	{
+			if(is_array($wrappedSubpartContentArray[$wPK])) {
+				$parts = &$wrappedSubpartContentArray[$wPK];
+			} else {
+				$parts = explode('|',$wrappedSubpartContentArray[$wPK]);
+			}
+			$content = $cObj->substituteSubpart($content,$wPK,$parts);
+		}
+		
+		return $cObj->substituteMarkerArray($content,$markContentArray);
+	}
+	
+	private function formatEventLink($eventUid, $templatePath) {
+		$absFile = t3lib_div::getFileAbsFileName($templatePath);
+		$template = t3lib_div::getURL($absFile);
+		$link = $this->cObj->getSubpart($template,'###LINKPROTOTYPE###');
+
+		$switch = array();
+		$rems = array();
+		$wrapped = array();
+		$switch['###EVENTUID###'] = $eventUid;
+		
+		return $this->substituteMarkerArrayNotCached($link, $switch, $rems, $wrapped);
+	}
+	
+	private function formatEventListBody($formattedEvents, $templatePath) {
+		$absFile = t3lib_div::getFileAbsFileName($templatePath);
+		$template = t3lib_div::getURL($absFile);
+		$eventDivider = $this->cObj->getSubpart($template,'###EVENTDIVIDER###');
+		$mailBody = $this->cObj->getSubpart($template,'###PLAIN###');
+
+			// create an event list
+		$formattedList = implode($eventDivider."\n",$formattedEvents);
+		
+		$switch = array();
+		$rems = array();
+		$wrapped = array();
+		$switch['###EVENTLIST###'] = $formattedList;
+		
+		return $this->substituteMarkerArrayNotCached($mailBody, $switch, $rems, $wrapped);
+	}
+	
+	private function formatEvent($eventData, $templatePath) {
+		$absFile = t3lib_div::getFileAbsFileName($templatePath);
+		$template = t3lib_div::getURL($absFile);
+		$plainTemplate = $this->cObj->getSubpart($template,'###EVENT###');
+	
+		$switch = array();
+		$rems = array();
+		$wrapped = array();
+		$switch['###DAY###'] = $eventData['day'];
+		$switch['###DATE###'] = $eventData['date'];
+		$switch['###STARTTIME###'] = $eventData['starttime'];
+		$switch['###TITLE###'] = $eventData['title'];
+		$switch['###LINK###'] = $eventData['link'];
+		$switch['###TEASER###'] = $eventData['teaser'];
+		$switch['###DESCRIPTION###'] = $eventData['description'];
+		$switch['###ORGANIZER###'] = ($eventData['organizer']!=''? $eventData['organizer']: $this->LANG->getLL('cal.pi_flexform.NomenNominandum'));
+		$switch['###LOCATION###'] = $this->LANG->getLL('tx_cal_event.location')." ".
+			($eventData['location']!=''? $eventData['location']: $this->LANG->getLL('cal.pi_flexform.NomenNominandum'));
+		$switch['###CATEGORIES###'] = implode(", ",$eventData['categories']);
+			
+		$plainTemplate = $this->substituteMarkerArrayNotCached($plainTemplate, $switch, $rems, $wrapped);
+
+		return $plainTemplate;
+	}
+	
 	/**
 	* \see Interface tx_scheduler_AdditionalFieldProvider
 	*/
@@ -205,6 +350,16 @@ class tx_cal_digest_scheduler
 				$taskInfo['calendar'] = '';
 			}
 		}
+		
+		// option digest type
+		if (empty($taskInfo['digestType'])) {
+			if($parentObject->CMD == 'edit') {
+				$taskInfo['digestType'] = $task->digestType;
+			} else {
+				$taskInfo['digestType'] = '';
+			}
+		}
+		
 		// Initialize extra field "receiver"
 		if (empty($taskInfo['mailRecipient'])) {
 			if ($parentObject->CMD == 'add') {
@@ -266,6 +421,18 @@ class tx_cal_digest_scheduler
 			'code'     => $fieldCode,
 			'label'    => 'Calendar'
 		);
+		
+		$fieldIDdigestType = 'tx_scheduler[digestType]';
+		$fieldCode = '<select name="'.$fieldIDdigestType.'" id="digestType" >';
+		$fieldCode .= '<option value="list" '.
+			($taskInfo['digestType']=='list'?' selected="selected" ':'').'>List Digest</option>';
+		$fieldCode .= '<option value="detail" '.
+			($taskInfo['digestType']=='detail'?' selected="selected" ':'').'>Detailed Digest</option>';
+		$fieldCode .= '</select>';
+		$additionalFields[$fieldIDdigestType] = array(
+			'code'     => $fieldCode,
+			'label'    => 'Digest Type'
+		);
 
 		$fieldIDrecipient = 'tx_scheduler[mailRecipient]';
 		$fieldCode = '<input name="'.$fieldIDrecipient.'" id="mailRecipient" type="text" size="30" value="'.$taskInfo['mailRecipient'].'" />';
@@ -303,6 +470,7 @@ class tx_cal_digest_scheduler
 	*/
 	public function validateAdditionalFields(array &$submittedData, tx_scheduler_Module $parentObject) {
 		$submittedData['calendar'] = intval($submittedData['calendar']);
+		$submittedData['digestType'] = $submittedData['digestType'];
 		$submittedData['mailRecipient'] = $submittedData['mailRecipient'];
 		$submittedData['mailSender'] = $submittedData['mailSender'];
 		$submittedData['digestForecastDays'] = intval($submittedData['digestForecastDays']);
@@ -316,12 +484,12 @@ class tx_cal_digest_scheduler
 	*/
 	public function saveAdditionalFields(array $submittedData, tx_scheduler_Task $task) {
 		$task->calendar = $submittedData['calendar'];
+		$task->digestType = $submittedData['digestType'];
 		$task->mailRecipient = $submittedData['mailRecipient'];
 		$task->mailSender = $submittedData['mailSender'];
 		$task->digestForecastDays = $submittedData['digestForecastDays'];
 		$task->langValue = $submittedData['langValue'];
-	}
-
+	}	
 }
 
 if (defined('TYPO3_MODE') && $TYPO3_CONF_VARS[TYPO3_MODE]['XCLASS']['ext/os_cal/cron/class.tx_cal_digest_scheduler.php'])  {

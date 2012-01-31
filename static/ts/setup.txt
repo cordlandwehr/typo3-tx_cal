@@ -2683,6 +2683,16 @@ plugin.tx_cal_controller {
 			}
 			pageBrowser >
 		}
+		
+		digest {
+			# @description	Template for sending digest (list) mails.
+			# @also			Constants
+			listTemplate = {$plugin.tx_cal_controller.view.digest.listTemplate}
+			
+			# @description	Template for sending digest (detail) mails.
+			# @also			Constants
+			detailTemplate = {$plugin.tx_cal_controller.view.digest.detailTemplate}
+		}
 	}
 
 

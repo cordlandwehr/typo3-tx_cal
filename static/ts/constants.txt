@@ -156,4 +156,9 @@ plugin.tx_cal_controller {
 	view.search.searchResultLocationTemplate = EXT:cal/template/search_location.tmpl
 	# cat=Calendar Base (Templates)/file/search/4; type=string; label=Search (Organizer) Template: Marker-based template for organizer search.	
 	view.search.searchResultOrganizerTemplate = EXT:cal/template/search_organizer.tmpl
+	
+	# cat=Calendar Base (Templates)/file/digest/1; type=string; label=Digest (List) Template: Marker-based template for digest mail.
+	view.digest.listTemplate = EXT:cal/template/digest_list.tmpl
+	# cat=Calendar Base (Templates)/file/digest/2; type=string; label=Digest (Detail) Template: Marker-based template for digest mail.
+	view.digest.detailTemplate = EXT:cal/template/digest_detail.tmpl
 }
